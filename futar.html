@@ -1,0 +1,367 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+<head>
+	<!-- Daniel Darvas, 2016 -->
+	<meta http-equiv="content-type" content="text/html;charset=utf-8" />
+	<title>FUTÁR Display</title>
+	<link rel="stylesheet" type="text/css" href="style.css">
+	<script src="jquery-2.2.0.js"></script>
+	<script src="futar-font.js"></script>
+	<script type="text/javascript">
+		function inlineSVGs() {
+			// from http://stackoverflow.com/questions/24933430/img-src-svg-changing-the-fill-color
+			jQuery('img.svg').each(function(){
+			var $img = jQuery(this);
+			var imgID = $img.attr('id');
+			var imgClass = $img.attr('class');
+			var imgURL = $img.attr('src');
+
+			jQuery.get(imgURL, function(data) {
+				// Get the SVG tag, ignore the rest
+				var $svg = jQuery(data).find('svg');
+
+				// Add replaced image's ID to the new SVG
+				if(typeof imgID !== 'undefined') {
+					$svg = $svg.attr('id', imgID);
+				}
+				// Add replaced image's classes to the new SVG
+				if(typeof imgClass !== 'undefined') {
+					$svg = $svg.attr('class', imgClass);
+				}
+
+				// Remove any invalid XML tags as per http://validator.w3.org
+				$svg = $svg.removeAttr('xmlns:a');
+
+				// Replace image with new SVG
+				$img.replaceWith($svg);
+				afterSvgInlining();
+				
+
+			}, 'xml');
+			});
+		}
+
+		/* PARAMETERS */
+		WIDTH = 192;
+		HEIGHT = 48;
+		ON = "#FF7F2A";
+		OFF = "#000";
+		BLINKING_ON = "#FF7F2B";
+		BLINKING_OFF = "#000001";
+		
+		DIGIT_MAXHEIGHT = 7;
+		VERTICAL_SPACE = 1;
+		HORIZONTAL_SPACE = 1;
+		
+		COL1_X = 0;
+		COL2_X = 28;
+		COL3_X_RTL = WIDTH;
+		
+		MAX_LINES = Math.floor(HEIGHT / (DIGIT_MAXHEIGHT + VERTICAL_SPACE));
+		REFRESH_SEC = 5;
+		BLINK_REFRESH_MS = 800;
+		
+		/* Event handlers and load actions */
+		$(function(){
+			// reset the size if passed as URL param
+			// FIXME
+			var size = getUrlParameter('size');
+			if (size != null) {
+				HEIGHT = size;
+				$("#imgSvg").attr('src',"futar_" + size + "_192.svg");
+			}
+		
+			inlineSVGs();
+			
+			// setting up the event handlers
+			$("#btnSetStopName").on("click",function(){
+				setStopName($("#tbStopName").val());
+			});
+			
+			$("#btnTest1").on("click", test1);
+			$("#btnTest2").on("click", test2);
+		});
+		
+		function afterSvgInlining() {
+			// try to get data through FUTÁR API
+			var stopInUrl = getUrlParameter('stop');
+			if (stopInUrl != null) {
+				console.log("Load automatically data for stop " + stopInUrl);
+				
+				getData(stopInUrl);
+				
+				// reload every REFRESH_SEC
+				var timerId = setInterval(function () {
+					getData(stopInUrl);
+					}, REFRESH_SEC * 1000); 
+					
+				var timerblinker = setInterval(blink, BLINK_REFRESH_MS); 
+				
+				$("#tbStopId").val(stopInUrl);
+				$("#linkMap").attr('href',"http://futar.bkk.hu/stop/" + stopInUrl + "?layers=SVB");
+			}
+		}
+		
+		/* Display functions */
+		// Sets the state of the pixel in position (x,y). State should be 0 or 1.
+		function setPixel(x,y,state,blinking){
+			element = $("#pixel_" + x + "_" + y, $("#imgSvg"));
+			if (blinking == false) {
+				if (state == 0) {
+					element.css({ fill: OFF });
+				} else {
+					element.css({ fill: ON });
+				}
+			} else {
+				if (state == 0) {
+					element.css({ fill: OFF }); // this should not blink!
+				} else {
+					element.css({ fill: BLINKING_ON });
+				}
+			}
+		}
+		
+		// Returns the width of the given text in pixels.
+		function lengthOfText(str){
+			var len = -HORIZONTAL_SPACE;
+			for (var i = 0; i < str.length; i++) {
+				len += digit(str[i]).length + HORIZONTAL_SPACE;
+			}
+			
+			return len;
+		}
+		
+		// Displays a text starting at position (x,y).
+		//    digit: the text to display
+		//    blinking: if true, the text will blink
+		function putText(x,y,digit,blinking) {
+			var desc = DIGITS[digit[0]];
+			if (desc == null) {
+				desc = DIGITS["*"]
+			}
+			
+			for (i = 0; i < desc.length; i++) {
+				for (j = 0; j < DIGIT_MAXHEIGHT; j++) {
+					if ((desc[i] & (1 << j)) > 0)  {
+						// digit on
+						setPixel(x+i, y+j, 1, blinking);
+					} else {
+						// digit off -- off digit is never blinking
+						setPixel(x+i, y+j, 0, false);
+					}
+				}
+			}
+		
+			if (digit.length > 1) {
+				// print the remaining
+				putSpace(x + desc.length, y);
+				putText(x + desc.length + HORIZONTAL_SPACE, y, digit.substr(1), blinking);
+			}
+		}
+		
+		// Displays a space at position (x,y)
+		function putSpace(x,y){
+			for (i = 0; i < HORIZONTAL_SPACE; i++) {
+				for (j = 0; j < DIGIT_MAXHEIGHT; j++) {
+					setPixel(x+i, y+j, 0, false);
+				}
+			}
+		}
+		
+		// Returns the array describing the given character.
+		function digit(ch){
+			var desc = DIGITS[ch];
+			if (desc == null) {
+				desc = DIGITS["*"]
+			}
+			return desc;
+		}
+		
+		// Writes a complete line to the display.
+		//   lineNr: the index of the line (and not the position of the line!), zero-based (e.g. 0, 1, ...)
+		//   col1: text to put in the first column (typically the number of the line)
+		//   col2: text to put in the second column (typically the destination)
+		//   col3: text to put in the third column (typically the remaining time)
+		//   blinking: if true, the line will blink
+		function putLine(lineNr, col1, col2, col3, blinking) {
+			var y = lineNr * (DIGIT_MAXHEIGHT + VERTICAL_SPACE);
+			
+			console.log(col1 + " " + col2 + " " + col3);
+			
+			putText(COL1_X, y, col1, blinking);
+			putText(COL2_X, y, col2, blinking);
+			putText(COL3_X_RTL - lengthOfText(col3), y, col3, blinking);
+		}
+		
+		// Sets the stop name on the display.
+		function setStopName(stopName) {
+			svg = $("#imgSvg");
+			$("#textStopName tspan", svg).text(stopName);
+		}
+		
+		// Clears the display (sets all pixels to dark)
+		function clearDigits() {
+			for (i = 0; i < WIDTH; i++) {
+				for (j = 0; j < HEIGHT; j++) {
+					setPixel(i,j,0, false);
+				}
+			}
+		}
+		
+		/* Blinking */
+		blinkstate = false;
+		function blink() {
+			if (blinkstate) {
+				replaceAllDigitsWith(BLINKING_OFF, BLINKING_ON);
+			} else {
+				replaceAllDigitsWith(BLINKING_ON, BLINKING_OFF);
+			}
+			
+			blinkstate = !blinkstate;
+		}
+		
+		function replaceAllDigitsWith(origColor, newColor) {
+			// the CSS color's format might differ from the saved ones -- try to determine what to expect
+			pixel0 = $("#pixel_0_0");
+			temp = pixel0.css('fill');
+			pixel0.css('fill', origColor);
+			origColorCssValue = pixel0.css('fill');
+			pixel0.css('fill', temp);
+			
+			for (i = 0; i < WIDTH; i++) {
+				for (j = 0; j < HEIGHT; j++) {
+					element = $("#pixel_" + i + "_" + j);
+					if (element.css('fill') == origColorCssValue) {
+						element.css('fill', newColor);
+					}
+				}
+			}
+		}
+
+		/* Test functions */
+		function test1() {
+			console.log('test1');
+			for (i = 0; i < WIDTH; i++) {
+				for (j = 0; j < HEIGHT; j++) {
+					if ((i+j) % 2 == 0){
+						setPixel(i,j,1,false);
+					} else {
+						setPixel(i,j,0,false);
+					}
+				}
+			}
+		}
+		
+		function test2() {
+			console.log('test2');
+			for (i = 0; i < WIDTH; i++) {
+				for (j = 0; j < HEIGHT; j++) {
+					if ((i+j) % 2 == 0){
+						setPixel(i,j,0,true);
+					} else {
+						setPixel(i,j,1,true);
+					}
+				}
+			}
+		}
+		
+		function getUrlParameter(sParam) {
+			// source: http://stackoverflow.com/questions/19491336/get-url-parameter-jquery
+			var sPageURL = decodeURIComponent(window.location.search.substring(1)),
+			sURLVariables = sPageURL.split('&'),
+			sParameterName,
+			i;
+
+				for (i = 0; i < sURLVariables.length; i++) {
+					sParameterName = sURLVariables[i].split('=');
+
+					if (sParameterName[0] === sParam) {
+						return sParameterName[1] === undefined ? true : sParameterName[1];
+					}
+				}
+		};
+		
+		/* FUTÁR API calls to get real-time data */
+		// Fetches the data for the stop with the given ID ('stop') amd sets the display according to the received data.
+		function getData(stop){
+			var api_url = "http://futar.bkk.hu/bkk-utvonaltervezo-api/ws/otp/api/where/arrivals-and-departures-for-stop.json?";
+			var params = { stopId:stop, onlyDepartures:true, minutesBefore: 0, minutesAfter: 30, includeReferences: "stops,trips,routes" };
+			var params_str = jQuery.param(params);
+		
+			$.ajax({
+				url: api_url + params_str,
+				dataType: "jsonp"
+			}).then(function(response) {
+				var stopName = response.data.references.stops[stop].name;
+				setStopName(stopName);
+				setNextDepartures(response.data, response.currentTime);
+			});
+		}
+		
+		// Displays the given departure data.
+		function setNextDepartures(data, currentTime) {
+			stopTimes = data.entry.stopTimes;
+			clearDigits();
+
+			console.log(data);
+			
+			for (ii = 0; ii < MAX_LINES; ii++) {
+				if (stopTimes[ii] != null){	
+					arrivalTime = stopTimes[ii].predictedArrivalTime == null ? stopTimes[ii].arrivalTime : stopTimes[ii].predictedArrivalTime;
+					departureTime = stopTimes[ii].predictedDepartureTime == null ? stopTimes[ii].departureTime : stopTimes[ii].predictedDepartureTime;
+				
+					remainingTime_ms = departureTime * 1000 - currentTime;
+					remainingTime_s = remainingTime_ms / 1000;
+					remainingTime_min = Math.max(0, Math.round(remainingTime_s / 60));
+					
+					if (arrivalTime * 1000 < currentTime) {
+						// the vehicle has arrived -- the remaining time is zero
+						remainingTime_min = 0;
+					}					
+					
+					var headSign = data.references.trips[stopTimes[ii].tripId].tripHeadsign;
+					var routeId = data.references.trips[stopTimes[ii].tripId].routeId;
+					var route = data.references.routes[routeId].shortName;
+					//console.log(route + "   " + (headSign) + "   " + remainingTime_min + "'");
+					
+					var remainingTime_str = remainingTime_min == 0 ? "" : remainingTime_min + "'";
+					var blinking = (remainingTime_min == 0);
+					
+					putLine(ii, route, headSign, remainingTime_str, blinking);
+				}
+			}
+		}
+    </script>
+</head>
+
+<body> 
+	<div class="controls">
+		<div>
+			<div class="label">Test display</div>
+			<button id="btnClean" class="button" onClick="clearDigits()">Clear</button>
+			<button id="btnTest1" class="button">Test1</button>
+			<button id="btnTest2" class="button">Test2</button>
+		</div>
+	
+		<div>
+			<form action="futar.html" method="GET">
+				<div class="label">Show data for other stop</div>
+				<input type="text" name="stop" id="tbStopId" class="textbox" value="" placeholder="Stop ID (e.g. BKK_F01013)">
+				<input type="submit" id="btnJumpToStop" class="button" value="Show data for stop"><br>
+				
+				<div class="label">Display size</div>
+				<input type="radio" name="size" value="24">Small</input>
+				<input type="radio" name="size" value="48">Large</input>
+				<input type="submit" class="button" value="Set size">
+			</form>
+		</div>
+		
+		<a id="linkMap" href="http://futar.bkk.hu/">Jump to stop on BKK map</a>
+	</div>
+	<br>
+	<br>
+
+	<img id="imgSvg" xmlns="http://www.w3.org/2000/svg" version="1.1" class="svg" src="https://dl.dropboxusercontent.com/u/687554/futar_48_192.svg"/>
+</body>
+</html>
