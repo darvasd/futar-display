@@ -1,0 +1,63 @@
+/* Daniel Darvas, 2016 */
+
+body {
+	background: #F3F3F3;
+    font-family: sans-serif;
+	font-size: 16px;
+}
+
+a {
+	font: Arial;
+	font-size: 16px;
+	color: #000;
+}
+
+.label {
+	width: 200px;
+	display: inline-block;
+	color: #777;
+}
+
+.textbox {
+	/* size */
+	height: 20px;
+	width: 200px;
+	padding: 5px;
+	font-size: 16px;
+	
+	/* border */
+	border: 1px solid #DDDDDD;
+	border-radius: 5px;
+	
+	/* color */
+	background-image: linear-gradient(to bottom, #EEEEEE, #FFFFFF);
+}
+
+.button  {
+	/* size */
+	height: 30px;
+	width: 150px;
+	font-size: 16px;
+	
+	/* border */
+	border: 1px solid #DDDDDD;
+	border-radius: 5px;
+	
+	
+	/* color */
+	background-image: linear-gradient(to bottom, #999, #BBB);
+
+    cursor: pointer;
+}
+
+.controls {
+	border: 1px solid #DDDDDD;
+	border-radius: 5px;
+	padding: 10px;
+}
+
+#imgSvg {
+	margin: auto;
+	display: block;
+	zoom: 1;
+}
